@@ -1,0 +1,15 @@
+{
+  "format_version": "1.10",
+  "minecraft:item": {
+    "description": {
+      "identifier": "randompocket:pocket_full",
+      "register_to_create_menu": true,
+      "category": "Items"
+    },
+    "components": {
+      "minecraft:max_stack_size": 1,
+      "minecraft:use_duration": 1,
+      "minecraft:foil": true
+    }
+  }
+}

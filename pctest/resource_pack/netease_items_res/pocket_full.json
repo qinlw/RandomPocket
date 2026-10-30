@@ -1,0 +1,11 @@
+{
+  "format_version": "1.10",
+  "minecraft:item": {
+    "description": {
+      "identifier": "randompocket:pocket_full"
+    },
+    "components": {
+      "minecraft:icon": "pocket_full"
+    }
+  }
+}

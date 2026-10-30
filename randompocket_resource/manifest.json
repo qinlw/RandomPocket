@@ -1,0 +1,18 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "随机口袋 RandomPocket 资源",
+    "description": "随机口袋的资源包（贴图与显示名称）。",
+    "uuid": "06f2ca7d-d7ff-474d-967d-507e9ef32ae7",
+    "version": [1, 0, 8],
+    "min_engine_version": [1, 16, 0]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "description": "随机口袋资源包",
+      "uuid": "193b7608-9cc6-42a4-bfff-9bb0da280012",
+      "version": [1, 0, 8]
+    }
+  ]
+}

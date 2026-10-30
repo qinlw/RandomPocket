@@ -1,0 +1,13 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "randompocket:pocket_anchor",
+      "is_spawnable": false,
+      "is_summonable": false
+    },
+    "components": {
+      "minecraft:physics": {}
+    }
+  }
+}

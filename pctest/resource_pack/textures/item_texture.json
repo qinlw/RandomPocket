@@ -1,0 +1,12 @@
+{
+  "resource_pack_name": "randompocket.resource",
+  "texture_name": "atlas.items",
+  "texture_data": {
+    "pocket": {
+      "textures": "textures/items/pocket"
+    },
+    "pocket_full": {
+      "textures": "textures/items/pocket_full"
+    }
+  }
+}
