@@ -167,7 +167,7 @@ def build_pctest():
 
 def build_import_zip():
     """生成 MC Studio「本地导入」用的 zip（根目录为 behavior_pack + resource_pack）"""
-    out = os.path.join(BASE, "RandomPocket_import.zip")
+    out = os.path.join(BASE, "RandomPocket.zip")
     if os.path.exists(out):
         os.remove(out)
     count = 0
