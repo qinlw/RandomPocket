@@ -114,6 +114,8 @@ class RandomPocketServerSystem(ServerSystem):
         self._syncPending = set()
         self._useGuard = {}
         self._timerId = None
+        self._pool = []            # 运行时物品奖池
+        self._stackCache = {}      # 物品最大堆叠数缓存
 
         # 任何一步失败都不能影响系统注册，否则所有事件和定时器都不会生效
         try:
@@ -133,6 +135,10 @@ class RandomPocketServerSystem(ServerSystem):
                 print("[RandomPocket] timer(started) system")
             except Exception as e2:
                 print("[RandomPocket] system timer error:", e2)
+        try:
+            self._EnsurePool()
+        except Exception as e:
+            print("[RandomPocket] pool init error:", e)
         print("[RandomPocket] server system started")
 
     def _ListenEngineEvents(self):
@@ -367,6 +373,45 @@ class RandomPocketServerSystem(ServerSystem):
             out["extraId"] = eid
         return out
 
+    # ---------- 奖池 ----------
+    def _EnsurePool(self):
+        """运行时读取当前游戏与已加载模组的物品，过滤后缓存为奖池"""
+        if self._pool:
+            return self._pool
+        comp = CompFactory.CreateItem(_LevelId())
+        # 优先创造栏物品（列表干净），取不到再退回全部已加载物品
+        for flag, label in ((False, "creative"), (True, "all")):
+            try:
+                ids = comp.GetLoadItems(flag)
+            except Exception as e:
+                print("[RandomPocket] GetLoadItems(%s) error: %s" % (flag, e))
+                continue
+            pool = loot_pool.BuildPool(ids)
+            if pool:
+                self._pool = pool
+                print("[RandomPocket] pool %s items=%d" % (label, len(pool)))
+                return pool
+        self._pool = list(loot_pool.POOL)
+        print("[RandomPocket] pool fallback items=%d" % len(self._pool))
+        return self._pool
+
+    def _MaxStack(self, name):
+        """取物品最大堆叠数（带缓存），取不到返回 0"""
+        if name in self._stackCache:
+            return self._stackCache[name]
+        limit = 0
+        try:
+            info = CompFactory.CreateItem(_LevelId()).GetItemBasicInfo(name, 0)
+            if isinstance(info, dict):
+                limit = int(info.get("maxStackSize") or 0)
+        except Exception as e:
+            print("[RandomPocket] GetItemBasicInfo error:", e)
+        self._stackCache[name] = limit
+        return limit
+
+    def _RollItem(self):
+        return loot_pool.RollItem(self._EnsurePool(), self._MaxStack)
+
     # ---------- 扫描玩家身上的口袋 ----------
     def _ScanPockets(self, playerId):
         """按真实槽位逐个读取，避免 GetPlayerAllItems 的槽位信息不可靠"""
@@ -472,7 +517,7 @@ class RandomPocketServerSystem(ServerSystem):
                     got = 0
                     if idx == targetIdx:
                         while len(bag) < MAX_POCKET_SLOTS and got < ITEMS_PER_DAY:
-                            bag.append(loot_pool.RollItem())
+                            bag.append(self._RollItem())
                             got += 1
                         state["bag"] = bag
                     self._SaveState(playerId, pt, slot, item, state)
@@ -562,7 +607,7 @@ class RandomPocketServerSystem(ServerSystem):
         # 每个口袋只在第一次打开时补一个初始物品，保证第一个游戏日一定有内容；
         # 用 seeded 标记避免玩家主动清空口袋后又被重新填满。
         if not bag and not state.get("seeded"):
-            bag.append(loot_pool.RollItem())
+            bag.append(self._RollItem())
             state["seeded"] = True
             if state.get("day") is None:
                 state["day"] = self._ClockDay() or 0

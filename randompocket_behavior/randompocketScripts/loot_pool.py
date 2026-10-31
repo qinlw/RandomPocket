@@ -1,8 +1,15 @@
 # -*- coding: utf-8 -*-
-"""随机奖池配置
+"""随机奖池
 
-- POOL：可抽到的物品ID列表（基岩版格式 minecraft:xxx），想增删奖励直接改这个列表
-- NON_STACKABLE：不可堆叠物品（工具/武器/盔甲等），抽到时数量恒为1；其余物品随机 1~3 个
+奖池优先在运行时通过引擎接口生成：
+    itemComp.GetLoadItems(flag)
+        flag=False 仅返回创造栏物品（列表更干净，优先使用）
+        flag=True  返回当前加载的全部物品（含其他模组，作为后备）
+再经过滤后由 randompocketServer 缓存使用，因此可以自动包含当前游戏版本与
+已加载模组的物品，无需手工维护清单。
+
+- POOL：后备奖池（引擎接口不可用时使用），也可手工增删
+- NON_STACKABLE：接口取不到最大堆叠数时的兜底判断
 """
 
 import random
@@ -86,8 +93,89 @@ NON_STACKABLE = {
 }
 
 
-def RollItem():
-    """随机抽取一个物品，返回可直接用于 SpawnItemToPlayerInv 的物品字典"""
-    name = random.choice(POOL)
-    count = 1 if name in NON_STACKABLE else random.randint(1, 3)
+# 本模组自己的物品不进奖池，避免“口袋开出另外一个口袋”
+OWN_ITEMS = ("randompocket:pocket", "randompocket:pocket_full")
+
+# 技术/内部条目：不是正常可获得物品，抽到只会得到空气、流水之类
+EXCLUDE_EXACT = {
+    "air", "fire", "soul_fire", "water", "flowing_water", "lava", "flowing_lava",
+    "barrier", "allow", "deny", "border_block", "invisible_bedrock",
+    "command_block", "chain_command_block", "repeating_command_block",
+    "jigsaw", "structure_block", "structure_void", "moving_block",
+    "client_request_placeholder_block", "unknown", "camera", "end_portal",
+    "end_gateway", "portal", "bubble_column", "light_block",
+    "lit_furnace", "lit_blast_furnace", "lit_smoker", "lit_redstone_ore",
+    "lit_deepslate_redstone_ore", "lit_redstone_lamp", "lit_pumpkin",
+    "unlit_redstone_torch", "netherreactor", "glowingobsidian",
+    # 教育版/化学
+    "compound", "compound_creator", "material_reducer", "lab_table",
+    "chemistry_table", "bleach", "ice_bomb", "rapid_fertilizer", "medicine",
+    "chalkboard", "photo_item", "board", "portfolio", "balloon", "glow_stick",
+    "sparkler", "underwater_tnt", "underwater_torch", "spawn_egg",
+    # 旧版兼容 ID
+    "wood", "log", "log2", "leaves", "leaves2", "sapling", "planks", "wool",
+    "carpet", "concrete", "concrete_powder", "stained_glass",
+    "stained_glass_pane", "stained_hardened_clay", "banner", "skull",
+    "frame", "trip_wire", "waterlily", "noteblock", "grass_path", "stonebrick",
+    "netherbrick", "monster_egg", "mob_spawner", "reeds", "double_plant",
+}
+EXCLUDE_PREFIX = ("element_", "light_block", "reserved", "info_update",
+                  "deprecated_", "double_")
+EXCLUDE_SUFFIX = ("_double_slab", "_standing_sign", "_wall_sign",
+                 "_arm_collision")
+
+
+try:
+    _STRING_TYPES = (str, unicode)
+except NameError:
+    _STRING_TYPES = (str,)
+
+
+def _Normalize(raw):
+    """把接口返回的物品 ID 统一成带命名空间的字符串"""
+    if not isinstance(raw, _STRING_TYPES):
+        return ""
+    name = raw.strip()
+    if not name:
+        return ""
+    if ":" not in name:
+        name = "minecraft:" + name
+    return name
+
+
+def BuildPool(itemIds):
+    """过滤引擎返回的物品 ID 列表，生成可用奖池"""
+    pool = []
+    seen = set()
+    for raw in itemIds or []:
+        name = _Normalize(raw)
+        if not name or name in seen or name in OWN_ITEMS:
+            continue
+        base = name.split(":", 1)[1]
+        if base in EXCLUDE_EXACT:
+            continue
+        if base.startswith(EXCLUDE_PREFIX) or base.endswith(EXCLUDE_SUFFIX):
+            continue
+        seen.add(name)
+        pool.append(name)
+    return pool
+
+
+def RollItem(pool=None, stackSize=None):
+    """随机抽取一个物品，返回可直接用于 SpawnItemToPlayerInv 的物品字典
+
+    pool:      奖池（为空时使用后备 POOL）
+    stackSize: 可选回调，返回物品最大堆叠数；取不到时按 NON_STACKABLE 兜底
+    """
+    source = pool or POOL
+    name = random.choice(source)
+    limit = 0
+    if stackSize is not None:
+        try:
+            limit = int(stackSize(name) or 0)
+        except Exception:
+            limit = 0
+    if limit <= 0:
+        limit = 1 if name in NON_STACKABLE else 3
+    count = random.randint(1, min(3, limit))
     return {"newItemName": name, "newAuxValue": 0, "count": count}

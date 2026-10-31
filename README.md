@@ -1,1 +1,110 @@
-# RandomPocket
+# 随机口袋 RandomPocket
+
+一个面向《我的世界》中国版（网易）基岩版的轻量玩法模组：每位玩家都有一只随身携带的「随机口袋」，每个游戏日会自动开出一件随机物品，装满后变成「随机口袋·已满」，右键即可像宝箱一样自由存取。
+
+- 模组版本：1.0.8
+- 开发环境：网易 ModSDK 3.10（BE 1.21.130），Python 2.7
+- 最低引擎版本：1.16.0
+
+## 玩法
+
+### 每日自动刷新
+每过 1 个游戏日，模组会扫描玩家物品栏，从**第一个还有空位**的随机口袋中放入 1 件随机物品。当天只会刷新一个口袋，其余口袋保持原样；全部装满时当天不再刷新，并弹出提示。
+
+### 10 格随身空间
+口袋默认容量为 10 格，可作为移动仓库使用。装到第 10 件物品后，物品外观自动切换为红色贴图，名称变为「随机口袋·已满」，取出物品后恢复为普通口袋。
+
+### 宝箱式存取
+右键使用随机口袋，打开一个 10 格的自定义容器界面（标题为「随机口袋」），可以自由放入或取出物品。界面数据由服务端维护：
+- 打开时同步口袋内容；
+- 在界面中增删物品后自动回写；
+- 关闭界面后停止回读，避免空界面覆盖已有内容。
+
+### 首次进服赠送
+玩家第一次进入世界时会自动获得一个随机口袋（用 ExtraData 标记，跨存档只送一次）。如果身上已经有口袋则不再重复赠送。
+
+### 合成配方
+在 1 个皮革和 2 个线的无序合成中制作随机口袋：
+
+```
+皮革 ×1 + 线 ×2 → 随机口袋 ×1
+```
+
+## 奖池
+
+奖池不依赖固定清单，而是每次开局时由引擎接口动态生成：
+
+1. 优先调用 `GetLoadItems(False)` 获取创造栏物品。该列表由游戏维护，包含当前版本的原版物品，以及已注册到创造栏的其他模组物品。
+2. 取不到时改用 `GetLoadItems(True)` 获取当前加载的全部物品，并剔除空气、流水、点燃状态、命令方块、结构方块、教育版化学条目和旧版兼容 ID 等不能正常获得的条目。
+3. 引擎接口完全不可用时，才回退到 [`loot_pool.py`](randompocket_behavior/randompocketScripts/loot_pool.py) 中的静态后备奖池。
+
+因此：
+
+- 游戏版本更新后新增的物品会自动进入奖池；
+- 同时安装其他模组时，其注册到创造栏的物品也会自动加入，无需修改本模组；
+- 本模组自己的「随机口袋」已排除，避免口袋开出另一个口袋；
+- 抽取数量按 `GetItemBasicInfo` 返回的最大堆叠数决定：可堆叠物品随机 1～3 个，工具、武器、盔甲等固定 1 个。
+
+已知限制：
+
+- 药水、附魔书等依靠 aux/NBT 表达具体效果的物品，只会以基础形态出现（水瓶、无附魔书）；
+- 未注册到创造栏的第三方物品，只有在全部物品模式下才可能出现。
+
+奖池过滤规则与静态后备池都集中在 [`loot_pool.py`](randompocket_behavior/randompocketScripts/loot_pool.py) 中。
+
+## 技术实现
+
+- **数据存储**：口袋内容不使用物品 NBT，而是存在玩家的 ExtraData 键 `rb_<uid>` 中；物品的 `extraId` 只保存一个短标识 `rb:<uid>`。这样物品被移动、丢弃后仍能找回自己的内容，也避开了引擎对自定义 userData 的限制。
+- **时间推进**：服务端每秒轮询世界时间计算游戏日；若世界时间读不到或停住，则以真实时间每 20 分钟推进一天作为兜底。
+- **界面同步**：客户端监听 `PushScreenEvent` / `PopScreenEvent`，把界面打开与关闭的时机转发给服务端，用于打开时补推数据、关闭后停止回读。
+- **满态切换**：`pocket` 与 `pocket_full` 两个物品共用同一份状态，仅根据容量切换物品 ID 与贴图。
+- **动态奖池**：启动时通过 `GetLoadItems` 读取当前游戏与已加载模组的物品，过滤后缓存；堆叠数量通过 `GetItemBasicInfo.maxStackSize` 判断，并做缓存避免重复查询。
+
+## 目录结构
+
+```
+RandomPocket/
+├── randompocket_behavior/          # 行为包
+│   ├── entities/                   # 口袋锚点实体
+│   ├── netease_items_beh/          # 口袋物品定义（pocket / pocket_full）
+│   ├── netease_recipes/            # 合成配方
+│   ├── randompocketScripts/        # ModSDK 服务端 / 客户端脚本
+│   │   ├── modMain.py              # 模组入口
+│   │   ├── randompocketServer.py    # 刷新、状态、容器同步等服务端逻辑
+│   │   ├── randompocketClient.py    # 界面开闭事件转发
+│   │   └── loot_pool.py            # 奖池过滤与静态后备池
+│   └── texts/zh_CN.lang            # 物品名称
+├── randompocket_resource/          # 资源包
+│   ├── netease_items_res/          # 物品图标定义
+│   ├── textures/items/             # 口袋贴图
+│   └── ui/                         # 10 格容器界面
+├── pctest/                         # 电脑版手动导入用目录
+├── build.py                        # 构建脚本
+├── RandomPocket.mcaddon            # 双击导入的整合包
+└── RandomPocket.zip                # MC Studio「本地导入」用压缩包
+```
+
+## 构建与导入
+
+```bash
+python build.py
+```
+
+构建后会生成：
+
+- `RandomPocket.mcaddon`：行为包与资源包整合包，可直接双击导入；
+- `RandomPocket.zip`：根目录为 `behavior_pack/` 与 `resource_pack/`，用于 MC Studio「本地导入」；
+- `pctest/`：用于电脑版手动放入游戏目录测试的目录结构。
+
+开发测试时建议使用 ModSDK 3.10 开发包，与当前线上玩家客户端版本保持一致。
+
+## 可调参数
+
+在 [`randompocketServer.py`](randompocket_behavior/randompocketScripts/randompocketServer.py) 顶部可调整：
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `ITEMS_PER_DAY` | `1` | 每个游戏日放入的物品数量 |
+| `MAX_POCKET_SLOTS` | `10` | 口袋容量 |
+| `DAY_TICKS` | `24000` | 一个游戏日对应的 tick 数 |
+| `GRANT_KEY` | `randompocket_granted` | 首次赠送标记的 ExtraData 键 |
