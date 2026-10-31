@@ -49,7 +49,15 @@ STATE_PREFIX = "rb_"
 
 MOD_NAMESPACE = "randompocket"
 CLIENT_SYSTEM = "RandomPocketClientSystem"
+SERVER_SYSTEM = "RandomPocketServerSystem"
 SCREEN_EVENT = "rb_screen_event"
+
+# 测试模式（/rp test 开启；会话内有效，退出后重置）
+TEST_STATE_EVENT = "rb_test_state"
+TEST_POOL_CHUNK_EVENT = "rb_test_pool_chunk"
+TEST_POOL_REQUEST_EVENT = "rb_test_pool_request"
+TEST_REFRESH_EVENT = "rb_test_refresh"
+TEST_POOL_CHUNK_SIZE = 150
 # ==================================
 
 _levelId = None
@@ -116,6 +124,8 @@ class RandomPocketServerSystem(ServerSystem):
         self._timerId = None
         self._pool = []            # 运行时物品奖池
         self._stackCache = {}      # 物品最大堆叠数缓存
+        self._nameCache = {}       # 物品本地化名称缓存（测试面板用）
+        self._testMode = set()     # 处于测试模式的玩家
 
         # 任何一步失败都不能影响系统注册，否则所有事件和定时器都不会生效
         try:
@@ -145,6 +155,7 @@ class RandomPocketServerSystem(ServerSystem):
         engNs = serverApi.GetEngineNamespace()
         engSys = serverApi.GetEngineSystemName()
         for evtName in ("ServerItemTryUseEvent", "ServerItemUseOnEvent",
+                        "ServerChatEvent", "CommandEvent",
                         "PlayerTryAddCustomContainerItemServerEvent",
                         "PlayerTryPutCustomContainerItemServerEvent",
                         "PlayerTryRemoveCustomContainerItemServerEvent"):
@@ -168,6 +179,14 @@ class RandomPocketServerSystem(ServerSystem):
                                 self, self.OnScreenEvent)
         except Exception as e:
             print("[RandomPocket] listen screen event error: %s" % e)
+        # 测试面板请求
+        for evtName, handler in ((TEST_POOL_REQUEST_EVENT, self.OnTestPoolRequest),
+                                 (TEST_REFRESH_EVENT, self.OnTestRefresh)):
+            try:
+                self.ListenForEvent(MOD_NAMESPACE, CLIENT_SYSTEM, evtName,
+                                    self, handler)
+            except Exception as e:
+                print("[RandomPocket] listen %s error: %s" % (evtName, e))
 
     def Destroy(self):
         try:
@@ -337,10 +356,26 @@ class RandomPocketServerSystem(ServerSystem):
 
     @staticmethod
     def _Bag(state):
+        """口袋内容：dict，键为槽位号字符串，值为物品字典；旧版 list 自动迁移"""
         bag = state.get("bag")
-        if not isinstance(bag, list):
-            bag = []
-        return bag
+        if isinstance(bag, dict):
+            return bag
+        if isinstance(bag, list):
+            out = {}
+            for i, it in enumerate(bag):
+                if isinstance(it, dict) and _ItemName(it):
+                    out[str(i)] = it
+            return out
+        return {}
+
+    @staticmethod
+    def _BagAdd(bag, item):
+        """把物品放入第一个空槽位；满则返回 False"""
+        for slot in range(MAX_POCKET_SLOTS):
+            if str(slot) not in bag:
+                bag[str(slot)] = item
+                return True
+        return False
 
     @staticmethod
     def _HandledToday(state, day):
@@ -388,9 +423,9 @@ class RandomPocketServerSystem(ServerSystem):
                 continue
             pool = loot_pool.BuildPool(ids)
             if pool:
-                self._pool = pool
+                self._pool = sorted(pool)
                 print("[RandomPocket] pool %s items=%d" % (label, len(pool)))
-                return pool
+                return self._pool
         self._pool = list(loot_pool.POOL)
         print("[RandomPocket] pool fallback items=%d" % len(self._pool))
         return self._pool
@@ -411,6 +446,145 @@ class RandomPocketServerSystem(ServerSystem):
 
     def _RollItem(self):
         return loot_pool.RollItem(self._EnsurePool(), self._MaxStack)
+
+    # ---------- 测试模式 ----------
+    def ServerChatEvent(self, args):
+        """聊天指令：/rp test、#rp test"""
+        try:
+            if not isinstance(args, dict):
+                return
+            if not self._HandleTestCommand(args.get("playerId"),
+                                           args.get("message")):
+                return
+            args["cancel"] = True
+        except Exception as e:
+            print("[RandomPocket] chat event error:", e)
+
+    def CommandEvent(self, args):
+        """指令 Hook：/rp test"""
+        try:
+            if not isinstance(args, dict):
+                return
+            playerId = args.get("entityId") or args.get("playerId")
+            raw = args.get("command")
+            if isinstance(raw, _STRING_TYPES) and raw[:1] not in ("/", "#", "!", "！"):
+                raw = "/" + raw
+            if not self._HandleTestCommand(playerId, raw):
+                return
+            args["cancel"] = True
+        except Exception as e:
+            print("[RandomPocket] command event error:", e)
+
+    def _HandleTestCommand(self, playerId, raw):
+        """解析 /rp test [on|off]；匹配时返回 True 并已处理"""
+        if not playerId or not isinstance(raw, _STRING_TYPES):
+            return False
+        text = raw.strip()
+        if not text or text[0] not in ("/", "#", "!", "！"):
+            return False
+        words = text[1:].split()
+        if not words or words[0].lower() != "rp":
+            return False
+        sub = [w.lower() for w in words[1:]]
+        if sub and sub[0] != "test":
+            return False
+        want = None
+        if len(sub) >= 2:
+            if sub[1] in ("on", "true", "1", "开"):
+                want = True
+            elif sub[1] in ("off", "false", "0", "关"):
+                want = False
+        self._SetTestMode(playerId, want)
+        return True
+
+    def _SetTestMode(self, playerId, want=None):
+        enabled = (playerId not in self._testMode) if want is None else bool(want)
+        if enabled:
+            self._testMode.add(playerId)
+            self._Notify(playerId, "[随机口袋] 测试模式已开启：打开口袋后可查看奖池 / 刷新一天")
+            self._SendTestState(playerId, True)
+            self._SendPoolChunks(playerId)
+        else:
+            self._testMode.discard(playerId)
+            self._Notify(playerId, "[随机口袋] 测试模式已关闭")
+            self._SendTestState(playerId, False)
+        print("[RandomPocket] test mode %s for %s" % (enabled, playerId))
+
+    def _SendTestState(self, playerId, enabled):
+        try:
+            self.NotifyToClient(playerId, TEST_STATE_EVENT,
+                                {"enabled": bool(enabled)})
+        except Exception as e:
+            print("[RandomPocket] notify test state error:", e)
+
+    def _PoolEntry(self, name):
+        """奖池条目：物品 ID + 本地化名称（GetItemBasicInfo 的 itemName），带缓存"""
+        cn = self._nameCache.get(name)
+        if cn is None:
+            cn = ""
+            try:
+                info = CompFactory.CreateItem(_LevelId()).GetItemBasicInfo(name, 0)
+                if isinstance(info, dict):
+                    cn = info.get("itemName") or ""
+            except Exception:
+                pass
+            self._nameCache[name] = cn
+        return {"id": name, "name": cn}
+
+    def _SendPoolChunks(self, playerId):
+        pool = self._EnsurePool()
+        size = TEST_POOL_CHUNK_SIZE
+        total = max(1, (len(pool) + size - 1) // size)
+        for index in range(total):
+            try:
+                part = pool[index * size:(index + 1) * size]
+                self.NotifyToClient(playerId, TEST_POOL_CHUNK_EVENT, {
+                    "index": index,
+                    "total": total,
+                    "items": [self._PoolEntry(n) for n in part],
+                })
+            except Exception as e:
+                print("[RandomPocket] send pool chunk error:", e)
+                return
+        print("[RandomPocket] send pool to %s: %d items / %d chunks"
+              % (playerId, len(pool), total))
+
+    def OnTestPoolRequest(self, args):
+        try:
+            playerId = args.get("playerId")
+            if playerId and playerId in self._testMode:
+                self._SendPoolChunks(playerId)
+        except Exception as e:
+            print("[RandomPocket] test pool request error:", e)
+
+    def OnTestRefresh(self, args):
+        try:
+            playerId = args.get("playerId")
+            if playerId and playerId in self._testMode:
+                self._TestRefresh(playerId)
+        except Exception as e:
+            print("[RandomPocket] test refresh error:", e)
+
+    def _TestRefresh(self, playerId):
+        """立即模拟一次每日刷新：给第一个还有空位的口袋加 1 件物品"""
+        pockets = self._ScanPockets(playerId)
+        if not pockets:
+            self._Notify(playerId, "[随机口袋] 测试：身上没有口袋")
+            return
+        for pt, slot, item in pockets:
+            state = self._State(playerId, pt, slot, item)
+            bag = self._Bag(state)
+            if len(bag) >= MAX_POCKET_SLOTS:
+                continue
+            self._BagAdd(bag, self._RollItem())
+            state["bag"] = bag
+            self._SaveState(playerId, pt, slot, item, state)
+            self._Notify(playerId, "[随机口袋] 测试刷新 +1 (%d/%d)" %
+                         (len(bag), MAX_POCKET_SLOTS))
+            if self._openPocket.get(playerId) == state["uid"]:
+                self._PushBagToUI(playerId, bag)
+            return
+        self._Notify(playerId, "[随机口袋] 测试：口袋已满")
 
     # ---------- 扫描玩家身上的口袋 ----------
     def _ScanPockets(self, playerId):
@@ -517,7 +691,7 @@ class RandomPocketServerSystem(ServerSystem):
                     got = 0
                     if idx == targetIdx:
                         while len(bag) < MAX_POCKET_SLOTS and got < ITEMS_PER_DAY:
-                            bag.append(self._RollItem())
+                            self._BagAdd(bag, self._RollItem())
                             got += 1
                         state["bag"] = bag
                     self._SaveState(playerId, pt, slot, item, state)
@@ -607,7 +781,7 @@ class RandomPocketServerSystem(ServerSystem):
         # 每个口袋只在第一次打开时补一个初始物品，保证第一个游戏日一定有内容；
         # 用 seeded 标记避免玩家主动清空口袋后又被重新填满。
         if not bag and not state.get("seeded"):
-            bag.append(self._RollItem())
+            self._BagAdd(bag, self._RollItem())
             state["seeded"] = True
             if state.get("day") is None:
                 state["day"] = self._ClockDay() or 0
@@ -670,10 +844,9 @@ class RandomPocketServerSystem(ServerSystem):
         comp = CompFactory.CreateItem(playerId)
         for slot in range(MAX_POCKET_SLOTS):
             it = None
-            if slot < len(bag):
-                src = bag[slot]
-                if isinstance(src, dict) and _ItemName(src):
-                    it = self._CleanItem(src)
+            src = bag.get(str(slot)) if isinstance(bag, dict) else None
+            if isinstance(src, dict) and _ItemName(src):
+                it = self._CleanItem(src)
             try:
                 comp.SetPlayerUIItem(playerId, slot, it, False, True)
             except Exception as e:
@@ -683,7 +856,7 @@ class RandomPocketServerSystem(ServerSystem):
 
     def _ReadUIContainer(self, playerId):
         comp = CompFactory.CreateItem(playerId)
-        bag = []
+        bag = {}
         for slot in range(MAX_POCKET_SLOTS):
             try:
                 it = comp.GetPlayerUIItem(playerId, slot, True, True)
@@ -696,7 +869,7 @@ class RandomPocketServerSystem(ServerSystem):
                 except Exception:
                     count = 1
                 if count > 0:
-                    bag.append(self._CleanItem(it))
+                    bag[str(slot)] = self._CleanItem(it)
         return bag
 
     def _SyncOpenContainer(self, playerId):

@@ -54,6 +54,12 @@
     "type": "panel",
     "controls": [
       {
+        "test_buttons@randompocket_container.test_buttons": {}
+      },
+      {
+        "pool_dialog@randompocket_container.pool_dialog": {}
+      },
+      {
         "container_gamepad_helpers@common.container_gamepad_helpers": {}
       },
       {
@@ -137,6 +143,235 @@
               }
             }
           ]
+        }
+      }
+    ]
+  },
+
+  "test_buttons": {
+    "type": "panel",
+    "size": [ 0, 0 ],
+    "anchor_from": "center",
+    "anchor_to": "center",
+    "offset": [ 128, -42 ],
+    "layer": 20,
+    "visible": false,
+    "controls": [
+      {
+        "btn_pool@randompocket_container.test_button": {
+          "$label_text": "查看奖池",
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [ 0, 0 ]
+        }
+      },
+      {
+        "btn_refresh@randompocket_container.test_button": {
+          "$label_text": "刷新一天",
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [ 0, 28 ]
+        }
+      }
+    ]
+  },
+
+  "test_button": {
+    "type": "button",
+    "anchor_from": "center",
+    "anchor_to": "center",
+    "size": [ 86, 24 ],
+    "layer": 2,
+    "visible": true,
+    "button_mappings": [],
+    "is_handle_button_move_event": true,
+    "$label_text": "按钮",
+    "controls": [
+      {
+        "default": {
+          "type": "image",
+          "texture": "textures/netease/common/button/default",
+          "layer": 2
+        }
+      },
+      {
+        "hover": {
+          "type": "image",
+          "texture": "textures/netease/common/button/hover",
+          "layer": 2
+        }
+      },
+      {
+        "pressed": {
+          "type": "image",
+          "texture": "textures/netease/common/button/pressed",
+          "layer": 2
+        }
+      },
+      {
+        "button_label": {
+          "type": "label",
+          "color": [ 1, 1, 1 ],
+          "font_size": "normal",
+          "font_type": "smooth",
+          "layer": 3,
+          "max_size": [ "100%", "100%" ],
+          "shadow": false,
+          "text": "$label_text",
+          "text_alignment": "center"
+        }
+      }
+    ]
+  },
+
+  "pool_dialog": {
+    "type": "panel",
+    "size": [ 320, 240 ],
+    "anchor_from": "center",
+    "anchor_to": "center",
+    "layer": 30,
+    "visible": false,
+    "controls": [
+      {
+        "bg@randompocket_container.test_button": {
+          "$label_text": "",
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "size": [ "100%", "100%" ],
+          "layer": 1,
+          "controls": [
+            {
+              "default": {
+                "type": "image",
+                "texture": "textures/ui/dialog_background_opaque",
+                "layer": 1
+              }
+            },
+            {
+              "hover": {
+                "type": "image",
+                "texture": "textures/ui/dialog_background_opaque",
+                "layer": 1
+              }
+            },
+            {
+              "pressed": {
+                "type": "image",
+                "texture": "textures/ui/dialog_background_opaque",
+                "layer": 1
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title_label": {
+          "type": "label",
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [ 12, 8 ],
+          "size": [ 296, 12 ],
+          "text": "奖池",
+          "color": [ 1, 1, 1 ],
+          "font_size": "normal",
+          "shadow": true,
+          "text_alignment": "left",
+          "layer": 2
+        }
+      },
+      {
+        "search_box@common.text_edit_box": {
+          "$edit_box_default_texture": "textures/ui/edit_box_indent",
+          "$edit_box_hover_texture": "textures/ui/edit_box_indent_hover",
+          "$is_new_nine_slice": false,
+          "$nine_slice_buttom": 0,
+          "$nine_slice_left": 0,
+          "$nine_slice_right": 0,
+          "$nine_slice_top": 0,
+          "$nineslice_size": [ 0, 0, 0, 0 ],
+          "$place_holder_text": "输入物品ID或中文名",
+          "$place_holder_text_color": [ 0.5, 0.5, 0.5 ],
+          "$text_background_default": "netease_editor_template_namespace.edit_box_background_default",
+          "$text_background_hover": "netease_editor_template_namespace.edit_box_background_hover",
+          "$text_box_text_color": [ 1, 1, 1 ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [ 12, 28 ],
+          "size": [ 210, 24 ],
+          "enabled_newline": false,
+          "max_length": 64,
+          "layer": 3
+        }
+      },
+      {
+        "btn_search@randompocket_container.test_button": {
+          "$label_text": "搜索",
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [ 230, 28 ],
+          "size": [ 64, 24 ],
+          "layer": 3
+        }
+      },
+      {
+        "list_label": {
+          "type": "label",
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [ 12, 60 ],
+          "size": [ 296, 140 ],
+          "text": "",
+          "color": [ 1, 1, 1 ],
+          "font_size": "small",
+          "font_scale_factor": 1.0,
+          "line_padding": 1.0,
+          "shadow": true,
+          "text_alignment": "left",
+          "layer": 3
+        }
+      },
+      {
+        "btn_prev@randompocket_container.test_button": {
+          "$label_text": "上一页",
+          "anchor_from": "bottom_left",
+          "anchor_to": "bottom_left",
+          "offset": [ 12, -8 ],
+          "size": [ 60, 22 ],
+          "layer": 3
+        }
+      },
+      {
+        "page_label": {
+          "type": "label",
+          "anchor_from": "bottom_middle",
+          "anchor_to": "bottom_middle",
+          "offset": [ 0, -14 ],
+          "size": [ 80, 12 ],
+          "text": "1/1",
+          "color": [ 1, 1, 1 ],
+          "font_size": "small",
+          "text_alignment": "center",
+          "layer": 3
+        }
+      },
+      {
+        "btn_next@randompocket_container.test_button": {
+          "$label_text": "下一页",
+          "anchor_from": "bottom_right",
+          "anchor_to": "bottom_right",
+          "offset": [ -140, -8 ],
+          "size": [ 60, 22 ],
+          "layer": 3
+        }
+      },
+      {
+        "btn_close@randompocket_container.test_button": {
+          "$label_text": "关闭",
+          "anchor_from": "bottom_right",
+          "anchor_to": "bottom_right",
+          "offset": [ -12, -8 ],
+          "size": [ 60, 22 ],
+          "layer": 3
         }
       }
     ]
