@@ -198,6 +198,9 @@ class RandomPocketClientSystem(ClientSystem):
         if self._pendingCfg:
             self._ApplyBtnCfg(self._pendingCfg)
             self._pendingCfg = None
+        if self._hudWanted:
+            # HUD 创建前收到的「显示」通知没带隐藏定时器，补一个
+            self._ScheduleHudHide(self._hudHideSeq)
 
     def OnHudState(self, args):
         """手持切到口袋时服务端发来 show=True：显示按钮，3 秒后自动隐藏"""
