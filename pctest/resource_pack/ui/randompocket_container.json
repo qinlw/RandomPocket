@@ -224,9 +224,54 @@
     ]
   },
 
+  "pool_cell": {
+    "type": "button",
+    "anchor_from": "top_left",
+    "anchor_to": "top_left",
+    "size": [ 22, 22 ],
+    "layer": 4,
+    "visible": true,
+    "button_mappings": [],
+    "is_handle_button_move_event": true,
+    "controls": [
+      {
+        "default": {
+          "type": "image",
+          "texture": "textures/ui/rp_btn_default",
+          "layer": 1
+        }
+      },
+      {
+        "hover": {
+          "type": "image",
+          "texture": "textures/ui/rp_btn_hover",
+          "layer": 1
+        }
+      },
+      {
+        "pressed": {
+          "type": "image",
+          "texture": "textures/ui/rp_btn_pressed",
+          "layer": 1
+        }
+      },
+      {
+        "icon": {
+          "type": "image",
+          "texture": "textures/netease/common/image/default",
+          "anchor_from": "center",
+          "anchor_to": "center",
+          "size": [ 18, 18 ],
+          "layer": 2,
+          "visible": false
+        }
+      }
+    ]
+  },
+
   "pool_dialog": {
     "type": "panel",
-    "size": [ 320, 240 ],
+    "size": [ 160, 200 ],
     "anchor_from": "center",
     "anchor_to": "center",
     "layer": 30,
@@ -269,11 +314,12 @@
           "type": "label",
           "anchor_from": "top_left",
           "anchor_to": "top_left",
-          "offset": [ 12, 8 ],
-          "size": [ 296, 12 ],
+          "offset": [ 8, 6 ],
+          "size": [ 144, 12 ],
           "text": "奖池",
           "color": [ 1, 1, 1 ],
           "font_size": "normal",
+          "font_type": "smooth",
           "shadow": true,
           "text_alignment": "left",
           "layer": 2
@@ -289,15 +335,15 @@
           "$nine_slice_right": 0,
           "$nine_slice_top": 0,
           "$nineslice_size": [ 0, 0, 0, 0 ],
-          "$place_holder_text": "输入物品ID或中文名",
+          "$place_holder_text": "输入ID或中文名",
           "$place_holder_text_color": [ 0.5, 0.5, 0.5 ],
           "$text_background_default": "netease_editor_template_namespace.edit_box_background_default",
           "$text_background_hover": "netease_editor_template_namespace.edit_box_background_hover",
           "$text_box_text_color": [ 1, 1, 1 ],
           "anchor_from": "top_left",
           "anchor_to": "top_left",
-          "offset": [ 12, 28 ],
-          "size": [ 210, 24 ],
+          "offset": [ 8, 22 ],
+          "size": [ 96, 18 ],
           "enabled_newline": false,
           "max_length": 64,
           "layer": 3
@@ -308,69 +354,142 @@
           "$label_text": "搜索",
           "anchor_from": "top_left",
           "anchor_to": "top_left",
-          "offset": [ 230, 28 ],
-          "size": [ 64, 24 ],
+          "offset": [ 108, 22 ],
+          "size": [ 44, 18 ],
           "layer": 3
         }
       },
       {
-        "list_label": {
+        "cell_0@randompocket_container.pool_cell": { "offset": [ 8, 44 ] }
+      },
+      {
+        "cell_1@randompocket_container.pool_cell": { "offset": [ 32, 44 ] }
+      },
+      {
+        "cell_2@randompocket_container.pool_cell": { "offset": [ 56, 44 ] }
+      },
+      {
+        "cell_3@randompocket_container.pool_cell": { "offset": [ 80, 44 ] }
+      },
+      {
+        "cell_4@randompocket_container.pool_cell": { "offset": [ 104, 44 ] }
+      },
+      {
+        "cell_5@randompocket_container.pool_cell": { "offset": [ 128, 44 ] }
+      },
+      {
+        "cell_6@randompocket_container.pool_cell": { "offset": [ 8, 68 ] }
+      },
+      {
+        "cell_7@randompocket_container.pool_cell": { "offset": [ 32, 68 ] }
+      },
+      {
+        "cell_8@randompocket_container.pool_cell": { "offset": [ 56, 68 ] }
+      },
+      {
+        "cell_9@randompocket_container.pool_cell": { "offset": [ 80, 68 ] }
+      },
+      {
+        "cell_10@randompocket_container.pool_cell": { "offset": [ 104, 68 ] }
+      },
+      {
+        "cell_11@randompocket_container.pool_cell": { "offset": [ 128, 68 ] }
+      },
+      {
+        "cell_12@randompocket_container.pool_cell": { "offset": [ 8, 92 ] }
+      },
+      {
+        "cell_13@randompocket_container.pool_cell": { "offset": [ 32, 92 ] }
+      },
+      {
+        "cell_14@randompocket_container.pool_cell": { "offset": [ 56, 92 ] }
+      },
+      {
+        "cell_15@randompocket_container.pool_cell": { "offset": [ 80, 92 ] }
+      },
+      {
+        "cell_16@randompocket_container.pool_cell": { "offset": [ 104, 92 ] }
+      },
+      {
+        "cell_17@randompocket_container.pool_cell": { "offset": [ 128, 92 ] }
+      },
+      {
+        "cell_18@randompocket_container.pool_cell": { "offset": [ 8, 116 ] }
+      },
+      {
+        "cell_19@randompocket_container.pool_cell": { "offset": [ 32, 116 ] }
+      },
+      {
+        "cell_20@randompocket_container.pool_cell": { "offset": [ 56, 116 ] }
+      },
+      {
+        "cell_21@randompocket_container.pool_cell": { "offset": [ 80, 116 ] }
+      },
+      {
+        "cell_22@randompocket_container.pool_cell": { "offset": [ 104, 116 ] }
+      },
+      {
+        "cell_23@randompocket_container.pool_cell": { "offset": [ 128, 116 ] }
+      },
+      {
+        "name_label": {
           "type": "label",
           "anchor_from": "top_left",
           "anchor_to": "top_left",
-          "offset": [ 12, 60 ],
-          "size": [ 296, 140 ],
-          "text": "",
-          "color": [ 1, 1, 1 ],
+          "offset": [ 8, 142 ],
+          "size": [ 144, 12 ],
+          "text": "点图标查看名称",
+          "color": [ 0.8, 0.8, 0.8 ],
           "font_size": "small",
-          "font_scale_factor": 1.0,
-          "line_padding": 1.0,
+          "font_type": "smooth",
           "shadow": true,
-          "text_alignment": "left",
-          "layer": 3
-        }
-      },
-      {
-        "btn_prev@randompocket_container.test_button": {
-          "$label_text": "上一页",
-          "anchor_from": "bottom_left",
-          "anchor_to": "bottom_left",
-          "offset": [ 12, -8 ],
-          "size": [ 60, 22 ],
-          "layer": 3
+          "text_alignment": "center",
+          "layer": 2
         }
       },
       {
         "page_label": {
           "type": "label",
-          "anchor_from": "bottom_middle",
-          "anchor_to": "bottom_middle",
-          "offset": [ 0, -14 ],
-          "size": [ 80, 12 ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [ 8, 156 ],
+          "size": [ 144, 12 ],
           "text": "1/1",
           "color": [ 1, 1, 1 ],
           "font_size": "small",
+          "font_type": "smooth",
+          "shadow": true,
           "text_alignment": "center",
-          "layer": 3
+          "layer": 2
         }
       },
       {
-        "btn_next@randompocket_container.test_button": {
-          "$label_text": "下一页",
-          "anchor_from": "bottom_right",
-          "anchor_to": "bottom_right",
-          "offset": [ -140, -8 ],
-          "size": [ 60, 22 ],
+        "btn_prev@randompocket_container.test_button": {
+          "$label_text": "上页",
+          "anchor_from": "bottom_left",
+          "anchor_to": "bottom_left",
+          "offset": [ 8, -8 ],
+          "size": [ 36, 18 ],
           "layer": 3
         }
       },
       {
         "btn_close@randompocket_container.test_button": {
           "$label_text": "关闭",
+          "anchor_from": "bottom_middle",
+          "anchor_to": "bottom_middle",
+          "offset": [ 0, -8 ],
+          "size": [ 40, 18 ],
+          "layer": 3
+        }
+      },
+      {
+        "btn_next@randompocket_container.test_button": {
+          "$label_text": "下页",
           "anchor_from": "bottom_right",
           "anchor_to": "bottom_right",
-          "offset": [ -12, -8 ],
-          "size": [ 60, 22 ],
+          "offset": [ -8, -8 ],
+          "size": [ 36, 18 ],
           "layer": 3
         }
       }

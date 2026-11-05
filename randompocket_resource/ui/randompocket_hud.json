@@ -1,0 +1,141 @@
+{
+  "namespace": "randompocket_hud",
+
+  "main": {
+    "type": "panel",
+    "size": [ "100%", "100%" ],
+    "controls": [
+      {
+        "open_button@randompocket_hud.open_button": {}
+      },
+      {
+        "adjust_panel": {
+          "type": "panel",
+          "anchor_from": "top_middle",
+          "anchor_to": "top_middle",
+          "offset": [ 0, 40 ],
+          "size": [ 0, 0 ],
+          "layer": 6,
+          "visible": false,
+          "controls": [
+            {
+              "btn_smaller@randompocket_hud.adjust_button": {
+                "$label_text": "－",
+                "offset": [ -48, 0 ]
+              }
+            },
+            {
+              "btn_done@randompocket_hud.adjust_button": {
+                "$label_text": "完成",
+                "offset": [ 0, 0 ],
+                "size": [ 40, 16 ]
+              }
+            },
+            {
+              "btn_bigger@randompocket_hud.adjust_button": {
+                "$label_text": "＋",
+                "offset": [ 48, 0 ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+
+  "adjust_button": {
+    "type": "button",
+    "$label_text": "按钮",
+    "anchor_from": "center",
+    "anchor_to": "center",
+    "size": [ 28, 16 ],
+    "layer": 7,
+    "visible": true,
+    "button_mappings": [],
+    "is_handle_button_move_event": true,
+    "controls": [
+      {
+        "default": {
+          "type": "image",
+          "texture": "textures/ui/rp_btn_default",
+          "layer": 2
+        }
+      },
+      {
+        "hover": {
+          "type": "image",
+          "texture": "textures/ui/rp_btn_hover",
+          "layer": 2
+        }
+      },
+      {
+        "pressed": {
+          "type": "image",
+          "texture": "textures/ui/rp_btn_pressed",
+          "layer": 2
+        }
+      },
+      {
+        "button_label": {
+          "type": "label",
+          "color": [ 1, 1, 1 ],
+          "font_size": "small",
+          "font_type": "smooth",
+          "layer": 3,
+          "max_size": [ "100%", "100%" ],
+          "shadow": false,
+          "text": "$label_text",
+          "text_alignment": "center"
+        }
+      }
+    ]
+  },
+
+  "open_button": {
+    "type": "button",
+    "anchor_from": "bottom_middle",
+    "anchor_to": "bottom_middle",
+    "offset": [ 0, -33 ],
+    "size": [ 36, 14 ],
+    "layer": 5,
+    "visible": false,
+    "button_mappings": [],
+    "is_handle_button_move_event": true,
+    "controls": [
+      {
+        "default": {
+          "type": "image",
+          "texture": "textures/ui/rp_btn_default",
+          "layer": 2
+        }
+      },
+      {
+        "hover": {
+          "type": "image",
+          "texture": "textures/ui/rp_btn_hover",
+          "layer": 2
+        }
+      },
+      {
+        "pressed": {
+          "type": "image",
+          "texture": "textures/ui/rp_btn_pressed",
+          "layer": 2
+        }
+      },
+      {
+        "button_label": {
+          "type": "label",
+          "color": [ 1, 1, 1 ],
+          "font_size": "small",
+          "font_type": "smooth",
+          "layer": 3,
+          "max_size": [ "100%", "100%" ],
+          "shadow": false,
+          "text": "打开",
+          "text_alignment": "center"
+        }
+      }
+    ]
+  }
+}

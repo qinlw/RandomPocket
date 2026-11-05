@@ -1,6 +1,7 @@
 {
   "ui_defs": [
     "ui/randompocket_container.json",
+    "ui/randompocket_hud.json",
     "ui/netease_editor_template_namespace.json"
   ]
 }

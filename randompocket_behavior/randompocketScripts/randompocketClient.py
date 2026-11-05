@@ -40,7 +40,35 @@ POOL_CHUNK_EVENT = "rb_test_pool_chunk"
 POOL_REQUEST_EVENT = "rb_test_pool_request"
 REFRESH_EVENT = "rb_test_refresh"
 
-PAGE_SIZE = 12
+# 手机端没有右键：快捷栏有口袋时 HUD 显示「打开口袋」按钮。
+# 客户端物品组件没有 GetSelectSlotId/GetInvItem（服务端专用），
+# 显隐由服务端扫描后通过 rb_hud_state 下发。
+HUD_UI_NAME = "RandomPocketHud"
+HUD_UI_JSON = "randompocket_hud.main"
+OPEN_REQUEST_EVENT = "rb_open_request"
+HUD_STATE_EVENT = "rb_hud_state"
+# /rp ui 进入按钮调整模式（拖动调位置、＋/－调大小、完成保存）；
+# 配置存服务端 ExtraData，进世界时经 rb_ui_cfg 下发
+UI_ADJUST_EVENT = "rb_ui_adjust"
+UI_CFG_EVENT = "rb_ui_cfg"
+UI_CFG_SAVE_EVENT = "rb_ui_cfg_save"
+
+POOL_CELLS = 24  # 奖池弹窗图标格数（6 列 x 4 行）
+
+try:
+    from mod.client.ui.screenNode import ScreenNode
+except Exception:
+    ScreenNode = object
+
+
+class RandomPocketHudScreen(ScreenNode):
+    """HUD 层界面节点（打开口袋按钮），无需额外逻辑，回调走 API"""
+
+    def Create(self):
+        pass
+
+    def Destroy(self):
+        pass
 
 
 class RandomPocketClientSystem(ClientSystem):
@@ -55,6 +83,17 @@ class RandomPocketClientSystem(ClientSystem):
         self._poolTotal = 0
         self._poolFilter = ""
         self._poolPage = 0
+        self._hudUI = None          # HUD 界面节点（打开口袋按钮）
+        self._hudWanted = False     # 服务端下发的按钮显隐状态
+        self._iconCache = {}        # 物品ID -> 图标贴图路径
+        self._gridPath = None       # 口袋物品网格控件路径（弹窗打开时隐藏）
+        self._pageEntries = []      # 当前页的 (物品ID, 中文名)
+        self._adjust = False        # 按钮调整模式
+        self._dragStart = None      # 拖动起点 (touchX, touchY, 原始position)
+        self._pendingCfg = None     # HUD 创建前收到的按钮配置
+        self._hudHideSeq = 0        # 按钮 3 秒自动隐藏的序号（防旧定时器误隐藏）
+        self._iconDebug = 0         # 图标贴图接口原始返回值探测计数
+        self._iconErr = 0           # SetSprite 报错计数（限流）
 
         engNs = clientApi.GetEngineNamespace()
         engSys = clientApi.GetEngineSystemName()
@@ -69,7 +108,10 @@ class RandomPocketClientSystem(ClientSystem):
                 print("[RandomPocket] client listen %s error: %s" % (evtName, e))
 
         for evtName, handler in ((TEST_STATE_EVENT, self.OnTestState),
-                                 (POOL_CHUNK_EVENT, self.OnPoolChunk)):
+                                 (POOL_CHUNK_EVENT, self.OnPoolChunk),
+                                 (HUD_STATE_EVENT, self.OnHudState),
+                                 (UI_ADJUST_EVENT, self.OnUiAdjust),
+                                 (UI_CFG_EVENT, self.OnUiCfg)):
             try:
                 self.ListenForEvent(MOD_NAMESPACE, SERVER_SYSTEM, evtName,
                                     self, handler)
@@ -111,7 +153,198 @@ class RandomPocketClientSystem(ClientSystem):
 
     # ---------- 测试面板（控件内嵌在容器屏里，运行时接管） ----------
     def UiInitFinished(self, args):
-        pass
+        self._EnsureHud()
+
+    # ---------- 手机端「打开口袋」HUD 按钮 ----------
+    def _EnsureHud(self):
+        if self._hudUI:
+            return
+        try:
+            clientApi.RegisterUI(
+                MOD_NAMESPACE, HUD_UI_NAME,
+                "randompocketScripts.randompocketClient.RandomPocketHudScreen",
+                HUD_UI_JSON)
+        except Exception as e:
+            print("[RandomPocket] register hud error: %s" % e)
+        try:
+            self._hudUI = clientApi.CreateUI(
+                MOD_NAMESPACE, HUD_UI_NAME, {"isHud": 1})
+        except Exception as e:
+            print("[RandomPocket] create hud error: %s" % e)
+            return
+        if not self._hudUI:
+            print("[RandomPocket] create hud returned None")
+            return
+        try:
+            btn = self._hudUI.GetBaseUIControl("/open_button").asButton()
+            btn.AddTouchEventParams({"isSwallow": True})
+            btn.SetButtonTouchUpCallback(self._OnOpenPressed)
+            # 调整模式下拖动按钮（仅触屏会触发 Move 回调）
+            btn.SetButtonTouchDownCallback(self._OnBtnDown)
+            btn.SetButtonTouchMoveCallback(self._OnBtnMove)
+            self._hudUI.GetBaseUIControl(
+                "/open_button").SetVisible(self._hudWanted)
+        except Exception as e:
+            print("[RandomPocket] wire hud button error: %s" % e)
+        for path, handler in (("/adjust_panel/btn_smaller", self._OnSmaller),
+                              ("/adjust_panel/btn_bigger", self._OnBigger),
+                              ("/adjust_panel/btn_done", self._OnAdjustDone)):
+            try:
+                b = self._hudUI.GetBaseUIControl(path).asButton()
+                b.AddTouchEventParams({"isSwallow": True})
+                b.SetButtonTouchUpCallback(handler)
+            except Exception as e:
+                print("[RandomPocket] wire %s error: %s" % (path, e))
+        if self._pendingCfg:
+            self._ApplyBtnCfg(self._pendingCfg)
+            self._pendingCfg = None
+
+    def OnHudState(self, args):
+        """手持切到口袋时服务端发来 show=True：显示按钮，3 秒后自动隐藏"""
+        show = bool(args.get("show")) if isinstance(args, dict) else False
+        self._hudWanted = show
+        self._hudHideSeq += 1
+        print("[RandomPocket] hud button visible=%s" % show)
+        if not self._hudUI:
+            return
+        try:
+            self._hudUI.GetBaseUIControl("/open_button").SetVisible(show)
+        except Exception as e:
+            print("[RandomPocket] hud set visible error: %s" % e)
+        if show:
+            self._ScheduleHudHide(self._hudHideSeq)
+
+    def _ScheduleHudHide(self, seq):
+        """3 秒后隐藏按钮；期间状态刷新或进入调整模式则取消"""
+        def _hide():
+            if seq != self._hudHideSeq or self._adjust:
+                return
+            try:
+                if self._hudUI:
+                    self._hudUI.GetBaseUIControl(
+                        "/open_button").SetVisible(False)
+            except Exception:
+                pass
+        try:
+            clientApi.GetEngineCompFactory().CreateGame(
+                clientApi.GetLevelId()).AddTimer(3.0, _hide)
+        except Exception as e:
+            print("[RandomPocket] hud hide timer error: %s" % e)
+
+    def _OnOpenPressed(self, args):
+        if self._adjust:
+            return  # 调整模式下点击不触发打开
+        try:
+            self.NotifyToServer(OPEN_REQUEST_EVENT, {
+                "playerId": clientApi.GetLocalPlayerId(),
+            })
+        except Exception as e:
+            print("[RandomPocket] open request error: %s" % e)
+
+    # ---------- 按钮调整模式（/rp ui） ----------
+    def OnUiAdjust(self, args):
+        """进入调整模式：强制显示按钮，可拖动；顶部出现 －/完成/＋"""
+        self._adjust = True
+        self._dragStart = None
+        print("[RandomPocket] enter ui adjust mode")
+        if not self._hudUI:
+            return
+        try:
+            self._hudUI.GetBaseUIControl("/open_button").SetVisible(True)
+            self._hudUI.GetBaseUIControl("/adjust_panel").SetVisible(True)
+        except Exception as e:
+            print("[RandomPocket] show adjust panel error: %s" % e)
+
+    def OnUiCfg(self, args):
+        """服务端下发的已保存按钮配置"""
+        if not isinstance(args, dict):
+            return
+        if not self._hudUI:
+            self._pendingCfg = args
+            return
+        self._ApplyBtnCfg(args)
+
+    def _ApplyBtnCfg(self, cfg):
+        offset = cfg.get("offset")
+        size = cfg.get("size")
+        try:
+            btn = self._hudUI.GetBaseUIControl("/open_button")
+            if (isinstance(offset, (list, tuple)) and len(offset) == 2):
+                btn.SetPosition((float(offset[0]), float(offset[1])))
+            if (isinstance(size, (list, tuple)) and len(size) == 2):
+                btn.SetSize((float(size[0]), float(size[1])), True)
+            print("[RandomPocket] button cfg applied offset=%r size=%r" %
+                  (offset, size))
+        except Exception as e:
+            print("[RandomPocket] apply cfg error: %s" % e)
+
+    def _OnBtnDown(self, args):
+        if not self._adjust:
+            return
+        try:
+            pos = self._hudUI.GetBaseUIControl("/open_button").GetPosition()
+            self._dragStart = (float(args.get("TouchPosX", 0)),
+                               float(args.get("TouchPosY", 0)),
+                               (float(pos[0]), float(pos[1])))
+        except Exception as e:
+            print("[RandomPocket] drag start error: %s" % e)
+            self._dragStart = None
+
+    def _OnBtnMove(self, args):
+        if not self._adjust or not self._dragStart:
+            return
+        try:
+            x0, y0, pos0 = self._dragStart
+            x = float(args.get("TouchPosX", x0))
+            y = float(args.get("TouchPosY", y0))
+            self._hudUI.GetBaseUIControl("/open_button").SetPosition(
+                (pos0[0] + x - x0, pos0[1] + y - y0))
+        except Exception as e:
+            print("[RandomPocket] drag move error: %s" % e)
+
+    def _ResizeButton(self, delta):
+        try:
+            btn = self._hudUI.GetBaseUIControl("/open_button")
+            w, h = btn.GetSize()
+            w = min(96.0, max(24.0, float(w) + delta * 6.0))
+            h = max(10.0, round(w * 7.0 / 18.0))  # 保持 36:14 比例
+            btn.SetSize((w, h), True)
+            print("[RandomPocket] button size -> %dx%d" % (w, h))
+        except Exception as e:
+            print("[RandomPocket] resize error: %s" % e)
+
+    def _OnSmaller(self, args):
+        self._ResizeButton(-1)
+
+    def _OnBigger(self, args):
+        self._ResizeButton(1)
+
+    def _OnAdjustDone(self, args):
+        """保存配置并退出调整模式"""
+        try:
+            btn = self._hudUI.GetBaseUIControl("/open_button")
+            pos = btn.GetPosition()
+            size = btn.GetSize()
+            self.NotifyToServer(UI_CFG_SAVE_EVENT, {
+                "playerId": clientApi.GetLocalPlayerId(),
+                "offset": [float(pos[0]), float(pos[1])],
+                "size": [float(size[0]), float(size[1])],
+            })
+            print("[RandomPocket] button cfg saved offset=%r size=%r" %
+                  (pos, size))
+        except Exception as e:
+            print("[RandomPocket] save cfg error: %s" % e)
+        self._adjust = False
+        self._dragStart = None
+        try:
+            self._hudUI.GetBaseUIControl("/adjust_panel").SetVisible(False)
+            self._hudUI.GetBaseUIControl(
+                "/open_button").SetVisible(self._hudWanted)
+            if self._hudWanted:
+                self._hudHideSeq += 1
+                self._ScheduleHudHide(self._hudHideSeq)
+        except Exception as e:
+            print("[RandomPocket] exit adjust error: %s" % e)
 
     def _ShowTestUI(self):
         # 界面刚 Push，延迟一点等节点就绪后再拿
@@ -129,22 +362,26 @@ class RandomPocketClientSystem(ClientSystem):
         "root_screen_panel", "randompocket_panel", "screen_content",
         "content", "content_panel", "root_panel", "main", "panel",
         "container_panel", "base_panel", "body", "root",
+        # 口袋物品网格所在分支（common.root_panel 模板内部层级）
+        "common_panel", "bg_image", "chest_panel",
+        "randompocket_panel_top_half",
     )
 
-    def _FindBase(self, node):
+    def _FindByName(self, node, target):
+        """在控件树里按名字 BFS，返回控件完整路径（不含节点本身）"""
         queue = [""]
         seen = set()
         while queue:
             path = queue.pop(0)
-            if path in seen or path.count("/") > 8:
+            if path in seen or path.count("/") > 12:
                 continue
             seen.add(path)
             try:
-                ctrl = node.GetBaseUIControl(path + "/test_buttons")
+                ctrl = node.GetBaseUIControl(path + "/" + target)
             except Exception:
                 ctrl = None
             if ctrl:
-                return path
+                return path + "/" + target
             parent = None
             if path:
                 try:
@@ -165,6 +402,12 @@ class RandomPocketClientSystem(ClientSystem):
                 if child:
                     queue.append(path + "/" + name)
         return None
+
+    def _FindBase(self, node):
+        found = self._FindByName(node, "test_buttons")
+        if found is None:
+            return None
+        return found[: -len("/test_buttons")]
 
     def _AttachTestUI(self):
         if not self._pocketOpen:
@@ -188,6 +431,9 @@ class RandomPocketClientSystem(ClientSystem):
         print("[RandomPocket] test controls found, base=%r" % (base,))
         self._testNode = node
         self._testBase = base
+        # 记录口袋物品网格路径：弹窗打开时隐藏，避免格子的数字/图标盖住弹窗
+        self._gridPath = self._FindByName(node, "randompocket_grid1")
+        print("[RandomPocket] grid path -> %r" % (self._gridPath,))
         # 显示/隐藏测试按钮
         try:
             node.GetBaseUIControl(base + "/test_buttons").SetVisible(
@@ -197,14 +443,17 @@ class RandomPocketClientSystem(ClientSystem):
         if not self._testMode:
             return
         # 挂按钮回调（button_mappings 已在 JSON 里清空，回调走 API）
-        wiring = (
+        wiring = [
             ("/test_buttons/btn_pool", self._OnBtnPool),
             ("/test_buttons/btn_refresh", self._OnBtnRefresh),
             ("/pool_dialog/btn_search", self._OnBtnSearch),
             ("/pool_dialog/btn_prev", self._OnBtnPrev),
             ("/pool_dialog/btn_next", self._OnBtnNext),
             ("/pool_dialog/btn_close", self._OnBtnClose),
-        )
+        ]
+        for i in range(POOL_CELLS):
+            wiring.append(
+                ("/pool_dialog/cell_%d" % i, self._MakeCellHandler(i)))
         for path, handler in wiring:
             try:
                 btn = node.GetBaseUIControl(base + path).asButton()
@@ -244,6 +493,16 @@ class RandomPocketClientSystem(ClientSystem):
         print("[RandomPocket] test mode: %s" % enabled)
 
     # ---------- 测试按钮回调 ----------
+    def _SetGridVisible(self, show):
+        """弹窗打开时隐藏口袋物品网格，防止格子数字/图标盖住弹窗"""
+        node = self._testNode
+        if not node or not self._gridPath:
+            return
+        try:
+            node.GetBaseUIControl(self._gridPath).SetVisible(bool(show))
+        except Exception as e:
+            print("[RandomPocket] grid visible error: %s" % e)
+
     def _OnBtnPool(self, args):
         node, base = self._testNode, self._testBase
         if not node or base is None:
@@ -252,6 +511,8 @@ class RandomPocketClientSystem(ClientSystem):
             node.GetBaseUIControl(base + "/pool_dialog").SetVisible(True)
         except Exception as e:
             print("[RandomPocket] open pool dialog error: %s" % e)
+        self._SetGridVisible(False)
+        self._SetLabel("/pool_dialog/name_label", "点图标查看名称")
         if not self._pool:
             self.RequestPool()
         self.RefreshPool()
@@ -290,6 +551,20 @@ class RandomPocketClientSystem(ClientSystem):
             node.GetBaseUIControl(base + "/pool_dialog").SetVisible(False)
         except Exception:
             pass
+        self._SetGridVisible(True)
+
+    def _MakeCellHandler(self, i):
+        def _Handler(args):
+            self._OnCellTap(i)
+        return _Handler
+
+    def _OnCellTap(self, i):
+        """点格子：在下方显示该物品的名称与 ID"""
+        if i >= len(self._pageEntries):
+            return
+        iid, cn = self._pageEntries[i]
+        text = ("%s %s" % (cn, iid)) if cn else iid
+        self._SetLabel("/pool_dialog/name_label", text)
 
     # ---------- 奖池弹窗内容 ----------
     def _SetLabel(self, path, text):
@@ -300,6 +575,93 @@ class RandomPocketClientSystem(ClientSystem):
             node.GetBaseUIControl(base + path).asLabel().SetText(text)
         except Exception as e:
             print("[RandomPocket] set label %s error: %s" % (path, e))
+
+    def _ParseTex(self, val):
+        """GetItemTexture 返回值可能是 str / dict / tuple，统一抽出贴图路径"""
+        if isinstance(val, _STRING_TYPES) and val:
+            return val
+        if isinstance(val, dict):
+            for k in ("texturePath", "texture", "icon", "iconPath", "path"):
+                v = val.get(k)
+                if isinstance(v, _STRING_TYPES) and v:
+                    return v
+        if isinstance(val, (list, tuple)):
+            for v in val:
+                r = self._ParseTex(v)
+                if r:
+                    return r
+        return ""
+
+    def _ItemIcon(self, name):
+        """物品 ID -> 贴图路径；优先引擎 GetItemTexture，失败回退 GetItemBasicInfo"""
+        cached = self._iconCache.get(name)
+        if cached is not None:
+            return cached or None
+        tex = ""
+        cf = clientApi.GetEngineCompFactory()
+        for pid in (clientApi.GetLocalPlayerId(), clientApi.GetLevelId()):
+            if not pid:
+                continue
+            comp = None
+            try:
+                comp = cf.CreateItem(pid)
+            except Exception:
+                continue
+            if comp is None:
+                continue
+            for call in (lambda: comp.GetItemTexture(name, 0),
+                         lambda: comp.GetItemTexture(name)):
+                try:
+                    got = call()
+                except Exception:
+                    got = None
+                if self._iconDebug < 6:
+                    self._iconDebug += 1
+                    print("[RandomPocket] icon raw %s -> %r" % (name, got))
+                tex = self._ParseTex(got)
+                if tex:
+                    break
+            if tex:
+                break
+            try:
+                info = comp.GetItemBasicInfo(name, 0)
+            except Exception:
+                info = None
+            if self._iconDebug < 6 and info is not None:
+                self._iconDebug += 1
+                print("[RandomPocket] icon info %s -> %r" % (name, info))
+            if isinstance(info, dict):
+                for key in ("iconPath", "texture", "texturePath",
+                            "icon", "itemTexture"):
+                    tex = self._ParseTex(info.get(key))
+                    if tex:
+                        break
+            if tex:
+                break
+        if tex and not tex.startswith("textures/"):
+            tex = "textures/" + tex
+        self._iconCache[name] = tex or ""
+        return tex or None
+
+    def _SetIcon(self, path, iid):
+        node = self._testNode
+        if not node:
+            return
+        try:
+            img = node.GetBaseUIControl(path).asImage()
+            if not iid:
+                img.SetVisible(False)
+                return
+            tex = self._ItemIcon(iid)
+            if tex:
+                img.SetSprite(tex)
+                img.SetVisible(True)
+            else:
+                img.SetVisible(False)
+        except Exception as e:
+            if self._iconErr < 6:
+                self._iconErr += 1
+                print("[RandomPocket] set icon %s error: %s" % (path, e))
 
     def RefreshPool(self):
         if not self._testNode or self._testBase is None:
@@ -318,18 +680,17 @@ class RandomPocketClientSystem(ClientSystem):
                        if kw in e[0].lower() or kw in e[1].lower()]
         total = len(self._pool)
         matched = len(entries)
-        pages = max(1, (matched + PAGE_SIZE - 1) // PAGE_SIZE)
+        pages = max(1, (matched + POOL_CELLS - 1) // POOL_CELLS)
         if self._poolPage >= pages:
             self._poolPage = pages - 1
-        start = self._poolPage * PAGE_SIZE
-        lines = []
-        for iid, cn in entries[start:start + PAGE_SIZE]:
-            lines.append("%s  %s" % (iid, cn) if cn else iid)
-        if not lines:
-            lines.append("（无匹配物品）" if self._pool else "（奖池加载中…）")
+        start = self._poolPage * POOL_CELLS
+        self._pageEntries = entries[start:start + POOL_CELLS]
+        for i in range(POOL_CELLS):
+            iid = self._pageEntries[i][0] if i < len(self._pageEntries) else None
+            self._SetIcon(
+                self._testBase + "/pool_dialog/cell_%d/icon" % i, iid)
         self._SetLabel("/pool_dialog/title_label",
-                       "奖池：共 %d 个物品（匹配 %d）" % (total, matched))
-        self._SetLabel("/pool_dialog/list_label", "\n".join(lines))
+                       "奖池：共 %d 个（匹配 %d）" % (total, matched))
         self._SetLabel("/pool_dialog/page_label",
                        "%d/%d" % (self._poolPage + 1, pages))
 

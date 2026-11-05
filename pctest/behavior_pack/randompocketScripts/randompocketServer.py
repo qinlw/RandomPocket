@@ -58,6 +58,15 @@ TEST_POOL_CHUNK_EVENT = "rb_test_pool_chunk"
 TEST_POOL_REQUEST_EVENT = "rb_test_pool_request"
 TEST_REFRESH_EVENT = "rb_test_refresh"
 TEST_POOL_CHUNK_SIZE = 150
+# 手机端无右键：客户端 HUD「打开口袋」按钮发来的打开请求
+OPEN_REQUEST_EVENT = "rb_open_request"
+# 服务端扫描后下发的按钮显隐状态（快捷栏有口袋则显示）
+HUD_STATE_EVENT = "rb_hud_state"
+# /rp ui 按钮调整模式：下发调整指令、下发/保存按钮位置大小配置
+UI_ADJUST_EVENT = "rb_ui_adjust"
+UI_CFG_EVENT = "rb_ui_cfg"
+UI_CFG_SAVE_EVENT = "rb_ui_cfg_save"
+UI_CFG_KEY = "rb_ui_cfg"
 # ==================================
 
 _levelId = None
@@ -126,6 +135,9 @@ class RandomPocketServerSystem(ServerSystem):
         self._stackCache = {}      # 物品最大堆叠数缓存
         self._nameCache = {}       # 物品本地化名称缓存（测试面板用）
         self._testMode = set()     # 处于测试模式的玩家
+        self._hudState = {}        # playerId -> 是否已通知客户端显示打开按钮
+        self._cfgSent = set()      # 已下发过按钮配置的玩家
+        self._slotBroken = False   # GetSelectSlotId 不可用时置 True，停止轮询手持
 
         # 任何一步失败都不能影响系统注册，否则所有事件和定时器都不会生效
         try:
@@ -156,6 +168,7 @@ class RandomPocketServerSystem(ServerSystem):
         engSys = serverApi.GetEngineSystemName()
         for evtName in ("ServerItemTryUseEvent", "ServerItemUseOnEvent",
                         "ServerChatEvent", "CommandEvent",
+                        "OnCarriedNewItemChangedServerEvent",
                         "PlayerTryAddCustomContainerItemServerEvent",
                         "PlayerTryPutCustomContainerItemServerEvent",
                         "PlayerTryRemoveCustomContainerItemServerEvent"):
@@ -179,9 +192,11 @@ class RandomPocketServerSystem(ServerSystem):
                                 self, self.OnScreenEvent)
         except Exception as e:
             print("[RandomPocket] listen screen event error: %s" % e)
-        # 测试面板请求
+        # 测试面板请求 + 手机端打开请求
         for evtName, handler in ((TEST_POOL_REQUEST_EVENT, self.OnTestPoolRequest),
-                                 (TEST_REFRESH_EVENT, self.OnTestRefresh)):
+                                 (TEST_REFRESH_EVENT, self.OnTestRefresh),
+                                 (OPEN_REQUEST_EVENT, self.OnOpenRequest),
+                                 (UI_CFG_SAVE_EVENT, self.OnUiCfgSave)):
             try:
                 self.ListenForEvent(MOD_NAMESPACE, CLIENT_SYSTEM, evtName,
                                     self, handler)
@@ -253,6 +268,9 @@ class RandomPocketServerSystem(ServerSystem):
     # ---------- 每秒轮询 ----------
     def OnSecondTimer(self, *args):
         try:
+            # 轻量手持检测：切到口袋时让「打开」按钮亮 3 秒
+            for pid in serverApi.GetPlayerList():
+                self._CheckHeldPocket(pid)
             day = self._ClockDay()
             if day is None:
                 return
@@ -486,6 +504,14 @@ class RandomPocketServerSystem(ServerSystem):
         if not words or words[0].lower() != "rp":
             return False
         sub = [w.lower() for w in words[1:]]
+        if sub and sub[0] == "ui":
+            try:
+                self.NotifyToClient(playerId, UI_ADJUST_EVENT, {})
+            except Exception as e:
+                print("[RandomPocket] ui adjust notify error:", e)
+            self._Notify(playerId,
+                         "[随机口袋] 按钮调整模式：拖动调位置，＋/－调大小，点「完成」保存")
+            return True
         if sub and sub[0] != "test":
             return False
         want = None
@@ -565,6 +591,25 @@ class RandomPocketServerSystem(ServerSystem):
         except Exception as e:
             print("[RandomPocket] test refresh error:", e)
 
+    # ---------- 手机端 HUD「打开口袋」按钮 ----------
+    def OnOpenRequest(self, args):
+        """客户端点「打开口袋」按钮：优先打开手持的那个口袋，否则开身上第一个"""
+        try:
+            playerId = args.get("playerId") if isinstance(args, dict) else None
+            if not playerId:
+                return
+            eid = args.get("extraId")
+            if not isinstance(eid, _STRING_TYPES):
+                eid = ""
+            print("[RandomPocket] open request from hud button, eid=%r" % eid)
+            entry = self._FindPocket(playerId, {"extraId": eid})
+            if entry is None:
+                self._Notify(playerId, "[随机口袋] 你身上没有口袋")
+                return
+            self._OpenPocket(playerId, entry)
+        except Exception as e:
+            print("[RandomPocket] open request error:", e)
+
     def _TestRefresh(self, playerId):
         """立即模拟一次每日刷新：给第一个还有空位的口袋加 1 件物品"""
         pockets = self._ScanPockets(playerId)
@@ -585,6 +630,90 @@ class RandomPocketServerSystem(ServerSystem):
                 self._PushBagToUI(playerId, bag)
             return
         self._Notify(playerId, "[随机口袋] 测试：口袋已满")
+
+    # ---------- 按钮调整模式（/rp ui）：保存/下发按钮位置大小 ----------
+    def OnUiCfgSave(self, args):
+        """客户端在调整模式点「完成」：把按钮 offset/size 存进 ExtraData"""
+        try:
+            playerId = args.get("playerId") if isinstance(args, dict) else None
+            if not playerId:
+                return
+            cfg = {}
+            offset = args.get("offset")
+            size = args.get("size")
+            if isinstance(offset, (list, tuple)) and len(offset) == 2:
+                cfg["offset"] = [float(offset[0]), float(offset[1])]
+            if isinstance(size, (list, tuple)) and len(size) == 2:
+                cfg["size"] = [float(size[0]), float(size[1])]
+            CompFactory.CreateExtraData(playerId).SetExtraData(
+                UI_CFG_KEY, json.dumps(cfg))
+            self._Notify(playerId, "[随机口袋] 按钮位置大小已保存")
+            print("[RandomPocket] ui cfg saved for %s: %r" % (playerId, cfg))
+        except Exception as e:
+            print("[RandomPocket] ui cfg save error:", e)
+
+    def _SendUiCfg(self, playerId):
+        """进世界后下发已保存的按钮配置（没有则发空 dict，客户端用默认）"""
+        cfg = {}
+        try:
+            raw = CompFactory.CreateExtraData(playerId).GetExtraData(UI_CFG_KEY)
+            if isinstance(raw, _STRING_TYPES) and raw:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    cfg = data
+        except Exception as e:
+            print("[RandomPocket] ui cfg load error:", e)
+        try:
+            self.NotifyToClient(playerId, UI_CFG_EVENT, cfg)
+            print("[RandomPocket] ui cfg -> %s: %r" % (playerId, cfg))
+        except Exception as e:
+            print("[RandomPocket] ui cfg notify error:", e)
+
+    # ---------- HUD「打开」按钮：手持切到口袋时亮 3 秒 ----------
+    def OnCarriedNewItemChangedServerEvent(self, args):
+        """切换手持物品时立即检测（事件参数不稳定，只取玩家ID再自查）"""
+        try:
+            playerId = None
+            if isinstance(args, dict):
+                playerId = args.get("playerId") or args.get("entityId")
+            if playerId:
+                self._CheckHeldPocket(playerId)
+        except Exception as e:
+            print("[RandomPocket] carried change error:", e)
+
+    def _HeldIsPocket(self, playerId):
+        """当前手持槽位是不是口袋；接口不可用时返回 None（保持原状态）"""
+        if self._slotBroken:
+            return None
+        try:
+            itemComp = CompFactory.CreateItem(playerId)
+            enum = serverApi.GetMinecraftEnum()
+            carried = getattr(getattr(enum, "ItemPosType", None),
+                              "CARRIED", None)
+            if carried is None:
+                raise Exception("no CARRIED enum")
+            try:
+                slot = itemComp.GetSelectSlotId()
+            except Exception:
+                slot = itemComp.GetSelectSlotId(playerId)
+            it = itemComp.GetPlayerItem(carried, slot)
+            return isinstance(it, dict) and _ItemName(it) in POCKET_ITEMS
+        except Exception as e:
+            self._slotBroken = True
+            print("[RandomPocket] held check disabled: %s" % e)
+            return None
+
+    def _CheckHeldPocket(self, playerId):
+        """手持口袋状态变化时通知客户端；客户端显示 3 秒后自行隐藏"""
+        held = self._HeldIsPocket(playerId)
+        if held is None or self._hudState.get(playerId) == held:
+            return
+        self._hudState[playerId] = held
+        try:
+            self.NotifyToClient(playerId, HUD_STATE_EVENT, {"show": held})
+            print("[RandomPocket] hud state -> %s for %s" % (held, playerId))
+        except Exception as e:
+            print("[RandomPocket] hud state notify error: %s" % e)
 
     # ---------- 扫描玩家身上的口袋 ----------
     def _ScanPockets(self, playerId):
@@ -658,6 +787,10 @@ class RandomPocketServerSystem(ServerSystem):
             try:
                 self._GrantPocket(playerId)
                 pockets = self._ScanPockets(playerId)
+                self._CheckHeldPocket(playerId)
+                if playerId not in self._cfgSent:
+                    self._cfgSent.add(playerId)
+                    self._SendUiCfg(playerId)
                 if not pockets:
                     print("[RandomPocket] player %s has no pocket" % playerId)
                     continue
