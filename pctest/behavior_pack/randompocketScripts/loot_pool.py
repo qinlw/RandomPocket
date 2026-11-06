@@ -3,8 +3,8 @@
 
 奖池优先在运行时通过引擎接口生成：
     itemComp.GetLoadItems(flag)
-        flag=False 仅返回创造栏物品（列表更干净，优先使用）
-        flag=True  返回当前加载的全部物品（含其他模组，作为后备）
+        flag=True  返回当前加载的全部物品（含其他模组，优先使用）
+        flag=False 仅返回创造栏物品（模组物品通常不在其中，作为后备）
 再经过滤后由 randompocketServer 缓存使用，因此可以自动包含当前游戏版本与
 已加载模组的物品，无需手工维护清单。
 

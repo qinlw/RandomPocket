@@ -432,8 +432,9 @@ class RandomPocketServerSystem(ServerSystem):
         if self._pool:
             return self._pool
         comp = CompFactory.CreateItem(_LevelId())
-        # 优先创造栏物品（列表干净），取不到再退回全部已加载物品
-        for flag, label in ((False, "creative"), (True, "all")):
+        # 优先全部已加载物品（含其他模组注册的物品；创造栏通常不含模组物品），
+        # 取不到再退回创造栏列表
+        for flag, label in ((True, "all"), (False, "creative")):
             try:
                 ids = comp.GetLoadItems(flag)
             except Exception as e:
